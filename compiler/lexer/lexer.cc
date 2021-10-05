@@ -4,8 +4,8 @@
  * Modified by: Naga Kandasamy
  * Date: September 8, 2021 
 
- * Student name(s): FIXME
- * Date modified: FIXME
+ * Student name(s): Nick Sica and Anna Panczner
+ * Date modified: 10/5/2021
 
 */
 
@@ -114,12 +114,10 @@ Lexer::Lexer(const char* fn)
     keywords.insert({"void", Token::TokenType::TOKEN_DES_VOID});
     keywords.insert({"int", Token::TokenType::TOKEN_DES_INT});
     keywords.insert({"float", Token::TokenType::TOKEN_DES_FLOAT});
-
-    // FIXME: insert the "if", "else", "for", and "while" keywords into the map
-    // String "if" must be assigned a token type of TOKEN_IF
-    // String "else" must be assigned a token type of TOKEN_ELSE
-    // String "for" must be assigned a token type of TOKEN_FOR 
-    // String "while" must be assigned a token type of TOKEN_WHILE
+    keywords.insert({"if", Token::TokenType::TOKEN_IF});
+    keywords.insert({"else", Token::TokenType::TOKEN_ELSE});
+    keywords.insert({"for", Token::TokenType::TOKEN_FOR});
+    keywords.insert({"while", Token::TokenType::TOKEN_WHILE});
 }
 
 // Return a token 
@@ -172,9 +170,7 @@ void Lexer::parseLine(std::string &line)
     for (auto iter = line.begin(); iter != line.end(); iter++) {
         // Skip space, tab
         if (*iter == ' ' || *iter == '\t') continue;
-        // FIXME: insert code to skip single-line comments
-        // Single-line comment starts with the two characters: //
-        // If the line is a single-line comment, we need not tokenize it; so break out of the for loop
+				if (*iter == '/' && *(iter+1) == '/') break;
 
         // Start forming token
         std::string cur_token_str(1, *iter);
@@ -227,9 +223,11 @@ void Lexer::parseLine(std::string &line)
             toks_per_line.push(_tok);
         }
         else {
-            // FIXME: create token object 
-            // Token type is TOKEN_IDENTIFIER
-            // Push token object into queue 
+					  std::string literal = cur_token_str;
+						Token::TokenType type = Token::TokenType::TOKEN_IDENTIFIER;
+						Token _tok(type, literal, cur_line);
+
+						toks_per_line.push(_tok);
         }
     }
 }
