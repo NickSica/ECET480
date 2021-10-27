@@ -113,6 +113,19 @@ void Parser::parseProgram()
                     break; // End of function body
 
             parseStatement(iden->getLiteral(), codes);
+
+            // Check if we just parsed an if/for statement
+            if (codes.back()->isStatementIf() || 
+                codes.back()->isStatementFor() || 
+                codes.back()->isStatementWhile()) {
+                // This ending right brace is from the statement and not end of function body
+                // We are still within the function body
+                assert(cur_token.isTokenRBrace());
+            }
+            else {
+                if (cur_token.isTokenRBrace())
+                    break;
+            }
         }
         
         std::unique_ptr<Statement> func_proto
@@ -134,6 +147,27 @@ void Parser::parseProgram()
 void Parser::parseStatement(std::string &cur_func_name, 
                             std::vector<std::shared_ptr<Statement>> &codes)
 {
+    // Parse if statement
+    if (cur_token.isTokenIf()) {
+        auto code = parseIfStatement(cur_func_name);
+        codes.push_back(std::move(code));
+        return;
+    }
+
+    // Parse for statement
+    if (cur_token.isTokenFor()) {
+        auto code = parseForStatement(cur_func_name);
+        codes.push_back(std::move(code));
+        return;
+    }
+
+    // Parse while statement
+    if (cur_token.isTokenWhile()) {
+        auto code = parseWhileStatement(cur_func_name);
+        codes.push_back(std::move(code));
+        return;
+    }
+
     // Parse function-call statement
     if (auto [is_def, is_built_in] = 
             isFuncDef(cur_token.getLiteral());
@@ -179,10 +213,8 @@ void Parser::parseStatement(std::string &cur_func_name,
 std::unique_ptr<Statement> Parser::parseAssnStatement()
 {
     // Allocating new variables
-    // Example: int variableName = value;
-    // Example: float variableName = value;
-		// int variableName;
-    // float variableName;
+    // Example: int variableName = value; or int variableName;
+    // Example: float variableName = value; or float variableName;
     if (isTokenTypeKeyword(cur_token)) {
         Token type_token = cur_token;
 
@@ -197,7 +229,6 @@ std::unique_ptr<Statement> Parser::parseAssnStatement()
         }
 
         // Check if variable is of type array
-        // NOTE: we do not support array data type yet
         bool is_array = (next_token.isTokenLBracket()) ? true : false;
 
         recordLocalVars(cur_token, type_token, is_array);
@@ -208,39 +239,33 @@ std::unique_ptr<Statement> Parser::parseAssnStatement()
 
         // Build node for expression on right-hand side of assignment statement
         std::unique_ptr<Expression> expr;
-				
+
         if (!is_array) {
             advanceTokens();
-						if (cur_token.isTokenSemicolon()) {
-								std::string literal;
-								Token::TokenType tok_type;
-							  if (type_token.isTokenDesInt()) {
-										literal = "0";
-										tok_type = Token::TokenType::TOKEN_INT;
-								}
-								else if (type_token.isTokenDesFloat()) {
-										literal = "0.0";
-										tok_type = Token::TokenType::TOKEN_FLOAT;
-								}
-								Token _tok(tok_type, literal);
-								expr = std::make_unique<LiteralExpression>(_tok);
-						}
-						else {
-								assert(cur_token.isTokenEqual());
+            if (cur_token.isTokenSemicolon()) {
+                std::string literal;
+                Token::TokenType tok_type;
+                if (type_token.isTokenDesInt()) {
+                    literal = "0";
+                    tok_type = Token::TokenType::TOKEN_INT;
+                }
+                else if (type_token.isTokenDesFloat()) {
+                    literal = "0.0";
+                    tok_type = Token::TokenType::TOKEN_FLOAT;
+                }
+                Token _tok(tok_type, literal);
+                expr = std::make_unique<LiteralExpression>(_tok);
+            }
+            else {
+                assert(cur_token.isTokenEqual());
 
-								advanceTokens();
-								expr = parseExpression();
-						}
+                advanceTokens();
+                expr = parseExpression();
+            }
         }
         else {
-            // parseArrayExpr() method will be added later
+            expr = parseArrayExpr();
         }
-				
-				if (expr->getType() == Expression::ExpressionType::LITERAL) 
-						std::cout << "      " << expr->print(4);
-				else 
-						std::cout << expr->print(4);
-    
 
         // Build node for assignment statement
         std::unique_ptr<Statement> statement = 
@@ -286,6 +311,105 @@ std::unique_ptr<Statement> Parser::parseAssnStatement()
     }
 }
 
+// Parse array expression 
+std::unique_ptr<Expression> Parser::parseArrayExpr()
+{
+    advanceTokens();
+    assert(cur_token.isTokenLBracket());
+
+    advanceTokens();
+    // num_ele, the number of elements, must be an integer
+    auto swap = cur_expr_type;
+    cur_expr_type = ValueType::Type::INT;
+    auto num_ele = parseExpression();
+    cur_expr_type = swap;
+    if (!(num_ele->isExprLiteral())) {
+        std::cerr << "[Error] Number of array elements "
+                  << "must be a single integer. \n"
+                  << "[Line] " << cur_token.getLine() << "\n";
+        exit(0);
+    }
+
+    auto num_ele_lit = static_cast<LiteralExpression*>(num_ele.get());
+    
+    if (!(num_ele_lit->isLiteralInt())) {
+        std::cerr << "[Error] Number of array elements "
+                  << "must be a single integer. \n"
+                  << "[Line] " << cur_token.getLine() << "\n";
+        exit(0);
+    }
+
+    int num_eles_int = stoi(num_ele_lit->getLiteral());
+    if (num_eles_int <= 1) {
+        std::cerr << "[Error] Number of array elements "
+                  << "must be larger than 1. \n"
+                  << "[Line] " << cur_token.getLine() << "\n";
+        exit(0);
+    }
+
+    assert(cur_token.isTokenRBracket());
+
+    advanceTokens();
+    assert(cur_token.isTokenEqual());
+
+    advanceTokens();
+    assert(cur_token.isTokenLBrace());
+
+    std::vector<std::shared_ptr<Expression>> eles;
+    if (!next_token.isTokenRBrace()) {
+        advanceTokens();
+        while (!cur_token.isTokenRBrace()) {
+            eles.push_back(parseExpression());
+            if (cur_token.isTokenComma())
+                advanceTokens();
+        }
+
+        // We make sure consistent number of elements
+        if (num_eles_int != eles.size()) {
+            std::cerr << "[Error] Accpeted format: "
+                      << "(1) pre-allocation style - array<int> x[10] = {} "
+                      << "(2) #initials == #elements - "
+                      << "array<int> x[2] = {1, 2} \n"
+                      << "[Line] " << cur_token.getLine() << "\n";
+            exit(0);
+        }
+    }
+    else {
+        advanceTokens();
+    }
+
+    advanceTokens();
+
+    std::unique_ptr<Expression> ret = 
+        std::make_unique<ArrayExpression>(num_ele, eles);
+
+    return ret;
+}
+
+// Parse array index 
+std::unique_ptr<Expression> Parser::parseIndex()
+{
+    std::unique_ptr<Identifier> iden(new Identifier(cur_token));
+
+    advanceTokens();
+    assert(cur_token.isTokenLBracket());
+
+    advanceTokens();
+
+    // Index must be an integer
+    auto swap = cur_expr_type;
+    cur_expr_type = ValueType::Type::INT;
+    auto idx = parseExpression();
+    cur_expr_type = swap;
+
+    std::unique_ptr<Expression> ret = 
+        std::make_unique<IndexExpression>(iden, idx);
+
+    assert(cur_token.isTokenRBracket());
+
+    return ret;
+}
+
 // Parse function-call statement
 std::unique_ptr<Expression> Parser::parseCall()
 {
@@ -322,6 +446,244 @@ std::unique_ptr<Expression> Parser::parseCall()
         std::make_unique<CallExpression>(def, args);
 
     return ret;
+}
+
+// Parse Boolean condition 
+std::unique_ptr<Condition> Parser::parseCondition()
+{
+    // The type must be consistent
+    auto swap = cur_expr_type;
+    bool is_index = (next_token.isTokenLBracket()) ? 
+                    true : false;
+    cur_expr_type = getTokenType(cur_token, is_index);
+
+    // Parse left-hand side 
+    auto cond_left = parseExpression();
+
+    // Get the relational operator 
+    std::string comp_opr_str = cur_token.getLiteral();
+    if (next_token.isTokenEqual()) {
+        comp_opr_str += next_token.getLiteral();
+        advanceTokens();
+    }
+
+    // Parse right-hand side 
+    advanceTokens();
+    auto cond_right = parseExpression();
+
+    // Build condition object
+    std::unique_ptr<Condition> cond = 
+        std::make_unique<Condition>(cond_left,
+                                    cond_right,
+                                    comp_opr_str,
+                                    cur_expr_type);
+    cur_expr_type = swap;
+
+    return cond;
+}
+
+// Parse if-else statement 
+std::unique_ptr<Statement> Parser::parseIfStatement(std::string& 
+                                                    parent_func_name)
+{
+    advanceTokens();
+    assert(cur_token.isTokenLP());
+
+    advanceTokens();
+
+    // Parse the Boolean condition 
+    auto cond = parseCondition();
+
+    // Parse taken block
+    advanceTokens();
+    assert(cur_token.isTokenLBrace());
+
+    std::vector<std::shared_ptr<Statement>> taken_block_codes;
+    std::unordered_map<std::string,ValueType::Type> taken_block_local_vars;
+    local_vars_tracker.push_back(&taken_block_local_vars);
+    while (true) {
+        advanceTokens();
+        if (cur_token.isTokenRBrace())
+            break;
+
+        parseStatement(parent_func_name, taken_block_codes);
+
+        // Check if we just finished an if/for statement
+        if (taken_block_codes.back()->isStatementIf() ||
+            taken_block_codes.back()->isStatementFor() ||
+            taken_block_codes.back()->isStatementWhile()) {
+            // This RBrace is from the statement,
+            // should not terminate.
+            assert(cur_token.isTokenRBrace());
+        }
+        else {
+            if (cur_token.isTokenRBrace())
+                break;
+        }
+    }
+    
+    assert(cur_token.isTokenRBrace());
+    local_vars_tracker.pop_back();
+
+    // Parse else block
+    std::vector<std::shared_ptr<Statement>> not_taken_block_codes;
+    std::unordered_map<std::string,
+                       ValueType::Type> not_taken_block_local_vars;
+
+    if (next_token.isTokenElse()) {
+        advanceTokens();
+        local_vars_tracker.push_back(&not_taken_block_local_vars);
+        advanceTokens();
+        while (true) {
+            advanceTokens();
+            if (cur_token.isTokenRBrace())
+                break;
+
+            parseStatement(parent_func_name, not_taken_block_codes);
+            // We just finished an if/for statement
+            if (not_taken_block_codes.back()->isStatementIf() ||
+                not_taken_block_codes.back()->isStatementFor() ||
+                not_taken_block_codes.back()->isStatementWhile()) {
+                // This RBrace is from the statement,
+                // should not terminate.
+                assert(cur_token.isTokenRBrace());
+            }
+            else {
+                if (cur_token.isTokenRBrace())
+                    break;
+            }
+        }
+        assert(cur_token.isTokenRBrace());
+        local_vars_tracker.pop_back();
+    }
+
+    std::unique_ptr<Statement> if_statement = 
+        std::make_unique<IfStatement>(cond, 
+                                      taken_block_codes,
+                                      not_taken_block_codes,
+                                      taken_block_local_vars,
+                                      not_taken_block_local_vars);
+    
+    assert(cur_token.isTokenRBrace());
+    return if_statement;
+}
+
+// Parse for statement 
+std::unique_ptr<Statement> Parser::parseForStatement(std::string& 
+                                                     parent_func_name)
+{
+    advanceTokens();
+    assert(cur_token.isTokenLP());
+
+    advanceTokens();
+
+    // Parse start
+    auto start = parseAssnStatement();
+    assert(cur_token.isTokenSemicolon());
+
+    // Parse end
+    advanceTokens();
+    auto end = parseCondition();
+    assert(cur_token.isTokenSemicolon());
+
+    // Parse step
+    advanceTokens();
+    auto step = parseAssnStatement();
+    assert(cur_token.isTokenRP());
+
+    // Parse block
+    advanceTokens();
+    assert(cur_token.isTokenLBrace());
+
+    std::vector<std::shared_ptr<Statement>> block_codes;
+    std::unordered_map<std::string,ValueType::Type> local_vars;
+    local_vars_tracker.push_back(&local_vars);
+    while (true) {
+        advanceTokens();
+        if (cur_token.isTokenRBrace())
+            break;
+
+        parseStatement(parent_func_name, block_codes);
+
+        // Check if we just finished an if/for/while statement
+        if (block_codes.back()->isStatementIf() ||
+            block_codes.back()->isStatementFor() ||
+            block_codes.back()->isStatementWhile()) {
+            // This RBrace is from the statement,
+            // should not terminate.
+            assert(cur_token.isTokenRBrace());
+        }
+        else {
+            if (cur_token.isTokenRBrace())
+                break;
+        }
+    }
+    
+    assert(cur_token.isTokenRBrace());
+    local_vars_tracker.pop_back();
+
+    std::unique_ptr<Statement> for_statement = 
+        std::make_unique<ForStatement>(start,
+                                       end,
+                                       step,
+                                       block_codes,
+                                       local_vars);
+
+    assert(cur_token.isTokenRBrace());
+    return for_statement;
+}
+
+// Parse while statement
+std::unique_ptr<Statement> Parser::parseWhileStatement(std::string& 
+                                                       parent_func_name)
+{
+    advanceTokens();
+    assert(cur_token.isTokenLP());
+
+    advanceTokens();
+
+    // Parse end
+    auto cond = parseCondition();
+    assert(cur_token.isTokenRP());
+
+    // Parse block
+    advanceTokens();
+    assert(cur_token.isTokenLBrace());
+
+    std::vector<std::shared_ptr<Statement>> block_codes;
+    std::unordered_map<std::string,ValueType::Type> local_vars;
+    local_vars_tracker.push_back(&local_vars);
+    while (true) {
+        advanceTokens();
+        if (cur_token.isTokenRBrace())
+            break;
+
+        parseStatement(parent_func_name, block_codes);
+
+        // Check if we just finished an if/for/while statement
+        if (block_codes.back()->isStatementIf() ||
+            block_codes.back()->isStatementFor() ||
+            block_codes.back()->isStatementWhile()) {
+            // This RBrace is from the statement,
+            // should not terminate.
+            assert(cur_token.isTokenRBrace());
+        }
+        else {
+            if (cur_token.isTokenRBrace())
+                break;
+        }
+    }
+    
+    assert(cur_token.isTokenRBrace());
+    local_vars_tracker.pop_back();
+
+    std::unique_ptr<Statement> while_statement = 
+        std::make_unique<WhileStatement>(cond,
+                                         block_codes,
+                                         local_vars);
+
+    assert(cur_token.isTokenRBrace());
+    return while_statement;
 }
 
 // Parse expression 
@@ -362,6 +724,16 @@ std::unique_ptr<Expression> Parser::parseExpression()
                 pending_expr = parseCall();
             }
 
+            // check if next token is an array index
+            // TODO - add deref in the future
+            if (bool is_index = (next_token.isTokenLBracket()) ?
+                                true : false;
+                is_index) {
+                assert(pending_expr == nullptr);
+                strictTypeCheck(cur_token, is_index);
+                pending_expr = parseIndex();
+            }
+
             if (next_token.isTokenAsterisk() || next_token.isTokenSlash()) {
                 if (pending_expr != nullptr) {
                     advanceTokens();
@@ -371,9 +743,9 @@ std::unique_ptr<Expression> Parser::parseExpression()
                     right = parseTerm();
                 }
             }
-						else if (cur_token.isTokenPlus() || cur_token.isTokenMinus()) {
-								right = parseTerm();
-						}
+            else if (cur_token.isTokenPlus() || cur_token.isTokenMinus()) {
+                right = parseTerm();
+            }
             else {
                 if (pending_expr != nullptr) {
                     right = std::move(pending_expr);
@@ -420,7 +792,15 @@ std::unique_ptr<Expression> Parser::parseTerm(std::unique_ptr<Expression> pendin
                 right = parseTerm();
             }
             else {
-                if (auto [is_def, is_built_in] = 
+                // TODO - add deref in the future
+                bool is_index = (next_token.isTokenLBracket()) ?
+                                true : false;
+
+                strictTypeCheck(cur_token, is_index);
+    
+                if (is_index)
+                    right = parseIndex();
+                else if (auto [is_def, is_built_in] = 
                             isFuncDef(cur_token.getLiteral());
                             is_def)
                     right = parseCall();
@@ -450,40 +830,40 @@ std::unique_ptr<Expression> Parser::parseFactor()
     std::unique_ptr<Expression> left;
 
     // Handle unary plus and unary minus operators 
-		if (cur_token.isTokenPlus() || cur_token.isTokenMinus()) {
-			  Expression::ExpressionType expr_type;
-				Token new_token;
+    if (cur_token.isTokenPlus() || cur_token.isTokenMinus()) {
+        Expression::ExpressionType expr_type;
+        Token new_token;
 
-				if (cur_token.isTokenPlus()) {
-						expr_type = Expression::ExpressionType::PLUS;
-				}
-				else {
-						expr_type = Expression::ExpressionType::MINUS;
-				}
-				
-        if (cur_expr_type == ValueType::Type::INT) {
-					  std::string literal = "0";
-            new_token = Token(Token::TokenType::TOKEN_INT, literal);
-				}
+        if (cur_token.isTokenPlus()) {
+            expr_type = Expression::ExpressionType::PLUS;
+        }
         else {
-					  std::string literal = "0.0";
+            expr_type = Expression::ExpressionType::MINUS;
+        }
+        
+        if (cur_expr_type == ValueType::Type::INT) {
+            std::string literal = "0";
+            new_token = Token(Token::TokenType::TOKEN_INT, literal);
+        }
+        else {
+            std::string literal = "0.0";
             new_token = Token(Token::TokenType::TOKEN_FLOAT, literal);
-				}
+        }
 
         left = std::make_unique<LiteralExpression>(new_token);
         advanceTokens();
 
         std::unique_ptr<Expression> right;
-				if (cur_token.isTokenInt() || cur_token.isTokenFloat()) {
-						right = std::make_unique<LiteralExpression>(cur_token);
-						advanceTokens();	
-				}
-				else {
-						right = parseFactor();
-				}
-				
-			  left = std::make_unique<ArithExpression>(left, right, expr_type);
-				return left;
+        if (cur_token.isTokenInt() || cur_token.isTokenFloat()) {
+            right = std::make_unique<LiteralExpression>(cur_token);
+            advanceTokens();  
+        }
+        else {
+            right = parseFactor();
+        }
+        
+        left = std::make_unique<ArithExpression>(left, right, expr_type);
+        return left;
     }
 
     // Recursively parse sub-expression 
@@ -494,8 +874,16 @@ std::unique_ptr<Expression> Parser::parseFactor()
         advanceTokens();
         return left;
     }
+
+    // TODO - add deref in the future
+    bool is_index = (next_token.isTokenLBracket()) ?
+                    true : false;
+
+    strictTypeCheck(cur_token, is_index);
     
-    if (auto [is_def, is_built_in] = 
+    if (is_index)
+        left = parseIndex();
+    else if (auto [is_def, is_built_in] = 
                  isFuncDef(cur_token.getLiteral());
                  is_def)
         left = parseCall();
@@ -563,5 +951,88 @@ void FuncStatement::printStatement()
     
     std::cout << "  }\n";
     std::cout << "}\n";
+}
+
+void IfStatement::printStatement()
+{
+    std::cout << "  {\n";
+    std::cout << "  [IF Statement] \n";
+    std::cout << "  [Condition]\n";
+    cond->printStatement();
+    std::cout << "  [Taken Block]\n";
+    std::cout << "  {\n";
+    for (auto &code : taken_block) 
+        code->printStatement();
+    
+    std::cout << "  }\n";
+    
+    if (not_taken_block.size() == 0) {
+        std::cout << "  }\n";
+        return;
+    }
+    
+    std::cout << "  [Not Taken Block]\n";
+    std::cout << "  {\n";
+    for (auto &code : not_taken_block) 
+        code->printStatement();
+    
+    std::cout << "  }\n";
+    std::cout << "  }\n";
+}
+
+void ForStatement::printStatement()
+{
+    std::cout << "  {\n";
+    std::cout << "  [For Statement] \n";
+    std::cout << "  [Start]\n";
+    start->printStatement();
+    std::cout << "  [End]\n";
+    end->printStatement();
+    std::cout << "  [Step]\n";
+    step->printStatement();
+
+    std::cout << "  [Block]\n";
+    std::cout << "  {\n";
+    
+    for (auto &code : block) 
+        code->printStatement();
+    
+    std::cout << "  }\n";
+    std::cout << "  }\n";
+}
+
+void WhileStatement::printStatement()
+{
+    std::cout << "  {\n";
+    std::cout << "  [While Statement] \n";
+    std::cout << "  [Condition]\n";
+    cond->printStatement();
+
+    std::cout << "  [Block]\n";
+    std::cout << "  {\n";
+    
+    for (auto &code : block) 
+        code->printStatement();
+    
+    std::cout << "  }\n";
+    std::cout << "  }\n";
+}
+
+void Condition::printStatement()
+{
+    std::cout << "  {\n";
+    std::cout << "    [Left]\n";
+    if (left->getType() == Expression::ExpressionType::LITERAL)
+        std::cout << "      " << left->print(3) << "\n";
+    else
+        std::cout << left->print(3) << "\n";
+    
+    std::cout << "    [COMP] " << opr_type_str << "\n\n";
+    std::cout << "    [Right]\n";
+    if (right->getType() == Expression::ExpressionType::LITERAL) 
+        std::cout << "      " << right->print(3) << "\n";
+    else
+        std::cout << right->print(3) << "\n";
+    std::cout << "  }\n";
 }
 }

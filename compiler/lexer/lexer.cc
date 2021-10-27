@@ -77,6 +77,8 @@ std::string Token::prinTokenType()
             return std::string("ELSE");
         case TokenType::TOKEN_FOR:
             return std::string("FOR");
+        case TokenType::TOKEN_WHILE:
+            return std::string("WHILE");
         default:
             std::cerr << "[Error] prinTokenType: "
                       << "unsupported token type. \n";

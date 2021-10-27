@@ -74,7 +74,7 @@ struct Token {
         TOKEN_ELSE,
         // for - indicates the token is "for"
         TOKEN_FOR,
-				// for - indicates the token is "for"
+        // while - indicates the token is "while"
         TOKEN_WHILE
     } type = TokenType::TOKEN_ILLEGAL;
 
@@ -161,6 +161,7 @@ struct Token {
     bool isTokenIf() { return type == TokenType::TOKEN_IF; }
     bool isTokenElse() { return type == TokenType::TOKEN_ELSE; }
     bool isTokenFor() { return type == TokenType::TOKEN_FOR; }
+    bool isTokenWhile() { return type == TokenType::TOKEN_WHILE; }
 
     std::shared_ptr<std::string> line;
     std::string& getLine() { return *line; }
