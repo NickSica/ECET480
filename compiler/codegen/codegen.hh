@@ -74,7 +74,7 @@ class Codegen
             }
         }
     }
-    
+
     std::pair<bool,Value*> getReg(std::string& _var_name)
     {
         for (int i = local_vars_tracker.size() - 1;
@@ -101,12 +101,13 @@ class Codegen
     Value* condGen(Condition*);
     void ifGen(std::string&,Statement *);
     void forGen(std::string&,Statement *);
+    void whileGen(std::string&,Statement *);
 
     Value* allocaForIden(std::string&,
                          ValueType::Type&,
                          Expression*,
                          ArrayExpression*);
-   
+
     Value* exprGen(ValueType::Type,Expression*);
 
     void arrayExprGen(ValueType::Type,
