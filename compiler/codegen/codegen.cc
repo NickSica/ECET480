@@ -1,3 +1,12 @@
+/* LLVM IR code generation.
+ * Author: Shihao Song
+ * Modified by: Naga Kandasamy
+ * Date modified: October 21, 2021
+ *
+ * Student name(s): Nicholas Sica and Anna Panczner
+ * Date: 12/09/21
+ */
+
 #include "codegen/codegen.hh"
 
 namespace Frontend

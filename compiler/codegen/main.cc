@@ -1,7 +1,10 @@
 /* LLVM IR code generation.
- * Author: Shihao Song 
+ * Author: Shihao Song
  * Modified by: Naga Kandasamy
  * Date: October 21, 2021
+ *
+ * Student name(s): Nicholas Sica and Anna Panczner
+ * Date: 12/09/21
  */
 
 #include "parser/parser.hh"
@@ -26,7 +29,7 @@ int main(int argc, char* argv[])
     // Instantiate parser with source-program file
     Parser parser(source_program);
 
-    // Generate LLVM IR code and store in specified output file 
+    // Generate LLVM IR code and store in specified output file
     Codegen codegen(source_program, llvm_IR_code);
     codegen.setParser(&parser);
     codegen.gen();
